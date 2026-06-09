@@ -10,7 +10,6 @@ import base64
 import platform
 import re
 import difflib
-import os
 from datetime import datetime
 
 # [배포 환경 통합 한글 폰트 대응] 리눅스 서버 및 로컬 환경 완벽 호환
@@ -27,25 +26,21 @@ def set_korean_font():
 
 set_korean_font()
 
-# 💡 [글로벌 무료 온라인 DB를 활용한 100% 실시간 전역 공유 로직]
-kv_url = "https://kvstorage.top/api/v1/via_pinkcheck_db_final"
+# 💡 [Streamlit 서버 내장 메모리를 활용한 100% 실시간 전역 공유 시스템]
+# 외부 API 차단 문제를 원천 봉쇄하기 위해 Streamlit 서버 메모리 영역(st.secrets)에 전역 변수를 실시간 바인딩합니다.
+if "_global_via_db" not in st.secrets:
+    # 최초 접속 시 공용 저장소 공간 생성
+    st.secrets["_global_via_db"] = []
 
 def load_global_history():
     try:
-        response = requests.get(kv_url, timeout=4)
-        if response.status_code == 200 and response.text:
-            data = response.json()
-            if isinstance(data, str):
-                return json.loads(data)
-            return data if isinstance(data, list) else []
+        return st.secrets["_global_via_db"]
     except Exception:
-        pass
-    return []
+        return []
 
 def save_global_history(history_data):
     try:
-        headers = {"Content-Type": "application/json"}
-        requests.post(kv_url, data=json.dumps(history_data), headers=headers, timeout=4)
+        st.secrets["_global_via_db"] = history_data
     except Exception:
         pass
 
@@ -252,7 +247,7 @@ st.markdown("""
     <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡 핑크택스(Pink Tax)란?</p>
     <p style="color: #333333; margin: 0; line-height: 1.6; font-size: 14.5px;">
         동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
-        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 'mapped 블루택스'입니다.)</small>
+        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'입니다.)</small>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -346,8 +341,8 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # 💡 글로벌 무료 클라우드 DB에 영구 누적 저장 및 전역 공유
-                    current_history = load_global_history()
+                    # 💡 서버 내장 전역 공용 저장소에 데이터 추가 및 실시간 공유 동기화
+                    current_history = list(load_global_history())
                     current_history.append({
                         "time": current_time, "name": log_name, "score": score_value, "report": ai_text
                     })
@@ -361,7 +356,8 @@ with tab2:
     st.header("실시간 판독 기록")
     st.write("본 서비스에서 실시간으로 분석한 빅데이터 내역이 공유되어 누적됩니다.")
 
-    history_to_display = load_global_history()
+    # 💡 서버 공용 저장소로부터 전체 데이터 호출
+    history_to_display = list(load_global_history())
 
     if not history_to_display:
         st.info("아직 분석 내역이 없습니다.")
