@@ -10,9 +10,10 @@ import base64
 import platform
 import re
 import difflib
+import sqlite3
 from datetime import datetime
 
-# [배포 환경 통합 한글 폰트 대응] 리눅스 서버 및 로컬 환경 완벽 호환
+# [배포 환경 통합 한글 폰트 대응]
 def set_korean_font():
     font_list = fm.findSystemFonts()
     nanum_fonts = [f for f in font_list if 'Nanum' in f]
@@ -26,23 +27,39 @@ def set_korean_font():
 
 set_korean_font()
 
-# 💡 [Streamlit 서버 내장 메모리를 활용한 100% 실시간 전역 공유 시스템]
-# 외부 API 차단 문제를 원천 봉쇄하기 위해 Streamlit 서버 메모리 영역(st.secrets)에 전역 변수를 실시간 바인딩합니다.
-if "_global_via_db" not in st.secrets:
-    # 최초 접속 시 공용 저장소 공간 생성
-    st.secrets["_global_via_db"] = []
+# 💡 [진짜 해결책: SQLite3와 전역 캐시를 이용한 실시간 공용 DB 구축]
+# @st.cache_resource를 사용하면 전 세계 모든 접속자가 이 하나의 DB 연결을 공유합니다.
+@st.cache_resource
+def init_db():
+    # 서버 내부에 pinktax_global.db 라는 파일 생성 및 다중 접속 허용
+    conn = sqlite3.connect('pinktax_global.db', check_same_thread=False)
+    c = conn.cursor()
+    # 테이블 생성
+    c.execute('''CREATE TABLE IF NOT EXISTS history
+                 (time TEXT, name TEXT, score INTEGER, report TEXT)''')
+    conn.commit()
+    return conn
 
-def load_global_history():
-    try:
-        return st.secrets["_global_via_db"]
-    except Exception:
-        return []
+conn = init_db()
 
-def save_global_history(history_data):
-    try:
-        st.secrets["_global_via_db"] = history_data
-    except Exception:
-        pass
+def insert_history(time_str, name, score, report):
+    c = conn.cursor()
+    c.execute("INSERT INTO history (time, name, score, report) VALUES (?, ?, ?, ?)",
+              (time_str, name, score, report))
+    conn.commit()
+
+def load_history():
+    c = conn.cursor()
+    c.execute("SELECT time, name, score, report FROM history")
+    rows = c.fetchall()
+    # 최신 데이터가 위로 오도록 역순(reverse) 정렬하여 반환
+    history_list = [{"time": r[0], "name": r[1], "score": r[2], "report": r[3]} for r in rows]
+    return history_list
+
+def clear_history():
+    c = conn.cursor()
+    c.execute("DELETE FROM history")
+    conn.commit()
 
 # [오타 자동 교정 및 제품명 표준화 함수]
 def get_standard_name(input_name):
@@ -272,7 +289,7 @@ with st.sidebar:
         model_choice = st.selectbox("분석 모델", ["google/gemma-2-27b-it"], index=0)
 
 # 화면 탭 구성
-tab1, tab2, tab3 = st.tabs(["제품 판독기", "판독 기록", "판독 기준 안내"])
+tab1, tab2, tab3 = st.tabs(["제품 판별기", "판독 기록", "판독 기준 안내"])
 
 # --- 1번 탭: 제품 판별기 ---
 with tab1:
@@ -301,9 +318,9 @@ with tab1:
                     mime_type = uploaded_file.type
 
                 if ai_provider == "Google Gemini":
-                    api_key = st.secrets["GEMINI_API_KEY"]
+                    api_key = st.secrets.get("GEMINI_API_KEY", "")
                 else:
-                    api_key = st.secrets["OPENROUTER_API_KEY"]
+                    api_key = st.secrets.get("OPENROUTER_API_KEY", "")
 
                 result = call_pinktax_api(final_product_name, product_details, image_bytes, mime_type, ai_provider, model_choice, api_key)
 
@@ -341,12 +358,8 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # 💡 서버 내장 전역 공용 저장소에 데이터 추가 및 실시간 공유 동기화
-                    current_history = list(load_global_history())
-                    current_history.append({
-                        "time": current_time, "name": log_name, "score": score_value, "report": ai_text
-                    })
-                    save_global_history(current_history)
+                    # 💡 판독 완료 즉시 SQLite 데이터베이스에 기록 삽입 (실시간 전역 공유)
+                    insert_history(current_time, log_name, score_value, ai_text)
 
                     st.markdown("---")
                     st.caption("본 분석 리포트는 알고리즘 기반 예측물이며 법적 효력을 가지지 않습니다.")
@@ -354,13 +367,13 @@ with tab1:
 # --- 2번 탭: 판독 기록 히스토리 (전체 사용자 공유 버전) ---
 with tab2:
     st.header("실시간 판독 기록")
-    st.write("본 서비스에서 실시간으로 분석한 빅데이터 내역이 공유되어 누적됩니다.")
+    st.write("본 서비스에서 청중들이 실시간으로 분석한 빅데이터 내역이 모두 이곳에 누적됩니다.")
 
-    # 💡 서버 공용 저장소로부터 전체 데이터 호출
-    history_to_display = list(load_global_history())
+    # 💡 SQLite DB에서 모든 접속자의 기록을 실시간으로 가져오기
+    history_to_display = load_history()
 
     if not history_to_display:
-        st.info("아직 분석 내역이 없습니다.")
+        st.info("아직 분석 내역이 없습니다. 제품을 분석해보세요!")
     else:
         col_sort1, col_sort2, col_del = st.columns([2, 2, 1])
 
@@ -370,8 +383,8 @@ with tab2:
             sort_order = st.selectbox("정렬 방향", ["내림차순", "오름차순"])
         with col_del:
             st.write("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
-            if st.button("데이터 비우기"):
-                save_global_history([])
+            if st.button("전체 데이터 비우기"):
+                clear_history()
                 st.rerun()
 
         st.markdown("---")
