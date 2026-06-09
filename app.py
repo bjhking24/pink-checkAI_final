@@ -52,20 +52,41 @@ def get_worksheet():
         return None
 
 def load_history():
+    """
+    get_all_records 대신 get_all_values를 사용하여 
+    첫 줄 헤더 매핑 오류 및 데이터 공백으로 인한 에러를 원천 차단합니다.
+    """
     try:
         ws = get_worksheet()
         if ws:
-            return ws.get_all_records()
+            lines = ws.get_all_values()
+            if len(lines) <= 1:  # 헤더만 있거나 아예 비어있는 경우
+                return []
+            
+            headers = lines[0]  # ['time', 'name', 'score', 'report']
+            records = []
+            for row in lines[1:]:
+                # 행이 비어있거나 첫 번째 칸(시간)이 비어있다면 건너뜀
+                if not row or not row[0].strip():
+                    continue
+                # 딕셔너리 형태로 변환하여 기존 UI 코드와의 호환성 유지
+                record = {headers[i]: row[i] for i in range(len(headers)) if i < len(row)}
+                records.append(record)
+            return records
         return []
     except Exception as e:
         st.error(f"기록 불러오기 실패: {e}")
         return []
 
 def save_history(time_str, name, score, report):
+    """
+    구글 API가 정수나 특수문자 배열을 거부하는 현상을 방지하기 위해
+    모든 인자를 확실하게 문자열(str)로 변환한 후 안전하게 밀어 넣습니다.
+    """
     try:
         ws = get_worksheet()
         if ws:
-            ws.append_row([time_str, name, score, report])
+            ws.append_row([str(time_str), str(name), str(score), str(report)])
     except Exception as e:
         st.error(f"기록 저장 실패: {e}")
 
@@ -360,12 +381,11 @@ with tab1:
                     st.pyplot(fig_res)
                     st.markdown(ai_text)
 
-                    # 💡 [해결 조치 1] 줄바꿈 전까지의 텍스트 전체를 안전하게 캡처하도록 정규식 대폭 개선
+                    # 줄바꿈 전까지의 텍스트 전체를 안전하게 캡처하도록 정규식 적용
                     log_name = final_product_name
                     if not log_name:
                         name_match = re.search(r"분석\s*대상\s*제품명\s*:\s*([^\n]+)", ai_text)
                         if name_match:
-                            # 괄호나 공백, 대괄호 제거 및 깔끔하게 문자열 정돈
                             cleaned_name = name_match.group(1).strip()
                             cleaned_name = re.sub(r"[\[\]]", "", cleaned_name)
                             log_name = cleaned_name if cleaned_name else "사진 분석 상품"
@@ -374,7 +394,7 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # ── Google Sheets에 실시간 저장 ──
+                    # ── Google Sheets에 실시간 저장 (타입 에러 완전 방지) ──
                     save_history(current_time, log_name, score_value, ai_text)
 
                     st.markdown("---")
@@ -423,7 +443,6 @@ with tab2:
         display_list.sort(key=sort_key, reverse=is_reverse)
 
         for entry in display_list:
-            # 안전하게 사전 데이터를 가져오기 위해 .get() 메소드 사용
             e_time = entry.get('time', '미정')
             e_name = entry.get('name', '알 수 없는 상품')
             e_score = entry.get('score', 0)
@@ -459,4 +478,3 @@ with tab3:
     **4. 젠더 타겟팅 거품 교차 검증**
     여성 소비층 제품에 부과되는 숨겨진 핑크택스뿐만 아니라, 남성 소비층 제품에 붙는 숨겨진 블루택스 현상까지 동등한 기준으로 추적합니다.
     """)
-    
