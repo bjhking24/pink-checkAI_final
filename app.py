@@ -129,7 +129,6 @@ def draw_gauge_chart(score=None):
     ax.set_ylim(-0.4, 1.5)
     return fig
 
-@st.cache_data(show_spinner=False)
 def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_provider, model_choice, api_key):
     prompt = f"""
     너는 불필요한 미사여구를 모두 빼고 핵심만 냉철하게 지적하는 독립형 '젠더 마케팅 가격 차별 분석 시스템'이야.
