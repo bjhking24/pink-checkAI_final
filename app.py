@@ -35,13 +35,15 @@ SCOPES = [
     "https://www.googleapis.com/auth/drive"
 ]
 
-@st.cache_resource
+@st.cache_resource(ttl=3600)   # 1시간마다 재연결
 def get_worksheet():
     creds_dict = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
     creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    client = gspread.authorize(creds)
+    client = gspread.Client(auth=creds)   # 신식 API로 교체
+    client.session = requests.Session()
     sheet = client.open_by_key(st.secrets["SHEET_ID"])
     return sheet.worksheet("history")
+
 
 def load_history():
     try:
