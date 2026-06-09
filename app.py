@@ -28,7 +28,7 @@ def set_korean_font():
 set_korean_font()
 
 # ─────────────────────────────────────────────
-# Google Sheets 연결 (버그 전면 수정 및 안전성 확보)
+# Google Sheets 연결 (단계별 디버깅 메시지 추가)
 # ─────────────────────────────────────────────
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -36,12 +36,7 @@ SCOPES = [
 ]
 
 def get_worksheet():
-    """
-    Secrets 연동 에러를 완벽히 차단하고, 
-    실패 시 화면에 상세 에러(st.exception)를 강제로 노출합니다.
-    """
     try:
-        # [핵심 수정] st.secrets 객체를 안전하게 일반 파이썬 dict로 변환하는 정석 기법 적용
         if "GOOGLE_SERVICE_ACCOUNT" not in st.secrets:
             st.error("🚨 Streamlit Secrets에 [GOOGLE_SERVICE_ACCOUNT] 설정이 누락되었습니다.")
             return None
@@ -50,10 +45,7 @@ def get_worksheet():
         for key, value in st.secrets["GOOGLE_SERVICE_ACCOUNT"].items():
             creds_info[key] = value
 
-        # Google 인증 객체 생성
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-        
-        # [핵심 수정] gspread의 가장 안정적인 인증 컨텍스트인 gspread.authorize 사용
         client = gspread.authorize(creds)
         
         if "SHEET_ID" not in st.secrets:
@@ -65,8 +57,7 @@ def get_worksheet():
         return doc.worksheet("history")
         
     except Exception as e:
-        # 화면에 아무것도 안 뜨던 문제를 해결하기 위해 강제 예외 트레이스백을 출력합니다.
-        st.error("🚨 구글 시트 연결부에서 치명적 에러가 발생했습니다! 아래 에러 문구를 확인하세요.")
+        st.error("🚨 구글 시트 연결부 치명적 에러!")
         st.exception(e)
         return None
 
@@ -75,10 +66,10 @@ def load_history():
         ws = get_worksheet()
         if ws:
             lines = ws.get_all_values()
-            if len(lines) <= 1:  # 헤더만 있거나 아예 비어있는 경우
+            if len(lines) <= 1:
                 return []
             
-            headers = lines[0]  # ['time', 'name', 'score', 'report']
+            headers = lines[0]
             records = []
             for row in lines[1:]:
                 if not row or not row[0].strip():
@@ -93,11 +84,16 @@ def load_history():
 
 def save_history(time_str, name, score, report):
     try:
+        st.write("📢 [디버그] 구글 시트에 행 추가 시도 중...")
         ws = get_worksheet()
         if ws:
             ws.append_row([str(time_str), str(name), str(score), str(report)])
+            st.write("📢 [디버그] 구글 시트 저장 성공 완료!")
+        else:
+            st.write("📢 [디버그] 구글 시트 워크시트를 가져오지 못했습니다.")
     except Exception as e:
         st.error(f"🚨 기록 저장 실패: {e}")
+        st.exception(e)
 
 def clear_history():
     try:
@@ -262,9 +258,13 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
             }
             for attempt in range(3):
                 try:
-                    response = requests.post(url, headers=headers, json=payload)
+                    st.write(f"📢 [디버그] Gemini API 서버에 데이터 전송 시작... (시도 {attempt+1}/3)")
+                    response = requests.post(url, headers=headers, json=payload, timeout=20) # 타임아웃 20초 설정
+                    st.write(f"📢 [디버그] Gemini API 응답 코드 수신 완료: {response.status_code}")
                     response_json = response.json()
+                    
                     if "error" in response_json:
+                        st.error(f"🚨 API 내부 반환 에러: {response_json['error']}")
                         err_msg = response_json["error"].get("message", "")
                         err_code = response_json["error"].get("code", 0)
                         if err_code == 503 or "high demand" in err_msg.lower() or "overloaded" in err_msg.lower():
@@ -273,7 +273,9 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
                         break
                     if "candidates" in response_json:
                         return {"text": response_json['candidates'][0]['content']['parts'][0]['text']}
-                except Exception:
+                except Exception as e:
+                    st.error(f"🚨 API 요청 단계 중 예외 발생: {e}")
+                    st.exception(e)
                     time.sleep(1)
                     continue
         return {"error": "트래픽 폭증으로 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요."}
@@ -290,13 +292,17 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
             "temperature": 0.0
         }
         try:
-            response = requests.post(url, headers=headers, json=payload)
+            st.write("📢 [디버그] OpenRouter API 서버에 전송 중...")
+            response = requests.post(url, headers=headers, json=payload, timeout=20)
+            st.write(f"📢 [디버그] OpenRouter 응답 코드: {response.status_code}")
             response_json = response.json()
             if "choices" in response_json:
                 return {"text": response_json['choices'][0]['message']['content']}
             elif "error" in response_json:
                 return {"error": response_json["error"].get("message", "통신 중 에러가 발생했습니다.")}
         except Exception as e:
+            st.error(f"🚨 OpenRouter 예외 발생: {e}")
+            st.exception(e)
             return {"error": f"통신 실패: {e}"}
 
 # --- 메인 웹 화면 구성 ---
@@ -346,6 +352,7 @@ with tab1:
     product_details = st.text_area("가격, 용량(중량), 주 소비층에 대한 정보나 의견을 적어주세요 (선택사항)", placeholder="")
 
     if st.button("분석 시작"):
+        st.write("📢 [디버그] 분석 시작 버튼 클릭됨.")
         final_product_name = get_standard_name(product_name_input)
 
         if not final_product_name and not uploaded_file:
@@ -365,7 +372,9 @@ with tab1:
                 else:
                     api_key = st.secrets.get("OPENROUTER_API_KEY", "")
 
+                st.write("📢 [디버그] API 호출 직전 단계 진입...")
                 result = call_pinktax_api(final_product_name, product_details, image_bytes, mime_type, ai_provider, model_choice, api_key)
+                st.write("📢 [디버그] API 호출 결과 리턴받음.")
 
                 if result and "error" in result:
                     st.error(result["error"])
