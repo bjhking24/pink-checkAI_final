@@ -87,11 +87,11 @@ def draw_gauge_chart(score=None):
 
     ax.pie(sizes, colors=colors, startangle=180, counterclock=False, wedgeprops=dict(width=0.3, edgecolor='none'))
 
-    ax.text(-1.15, -0.1, "1. 매우 안전\n(0~20%)", color='#2ecc71', fontsize=10, ha='center', va='top', weight='bold')
-    ax.text(-0.85, 0.85, "2. 안전\n(21~40%)", color='#f1c40f', fontsize=10, ha='center', va='bottom', weight='bold')
-    ax.text(0, 1.25, "3. 보통\n(41~60%)", color='#e67e22', fontsize=10, ha='center', va='bottom', weight='bold')
-    ax.text(0.85, 0.85, "4. 위험\n(61~80%)", color='#e74c3c', fontsize=10, ha='center', va='bottom', weight='bold')
-    ax.text(1.15, -0.1, "5. 매우 위험\n(81~100%)", color='#900c3f', fontsize=10, ha='center', va='top', weight='bold')
+    ax.text(-1.15, -0.1, "1. \n(0~20%)", color='#2ecc71', fontsize=10, ha='center', va='top', weight='bold')
+    ax.text(-0.85, 0.85, "2. \n(21~40%)", color='#f1c40f', fontsize=10, ha='center', va='bottom', weight='bold')
+    ax.text(0, 1.25, "3. \n(41~60%)", color='#e67e22', fontsize=10, ha='center', va='bottom', weight='bold')
+    ax.text(0.85, 0.85, "4. \n(61~80%)", color='#e74c3c', fontsize=10, ha='center', va='bottom', weight='bold')
+    ax.text(1.15, -0.1, "5. \n(81~100%)", color='#900c3f', fontsize=10, ha='center', va='top', weight='bold')
 
     if score is not None:
         angle_rad = np.pi * (1 - score / 100.0)
