@@ -41,14 +41,28 @@ def get_worksheet():
             st.error("🚨 Streamlit Secrets에 [GOOGLE_SERVICE_ACCOUNT] 설정이 누락되었습니다.")
             return None
             
+        # Streamlit Secrets 객체로부터 순수한 딕셔너리 생성
         creds_info = {}
         for key, value in st.secrets["GOOGLE_SERVICE_ACCOUNT"].items():
             creds_info[key] = value
 
-        # 🔥 [핵심 조치] private_key 내부의 줄바꿈 이스케이프 문자를 실제 줄바꿈문자로 변환하여 PEM 에러 해결
+        # 🚨 [초강력 조치] PEM 파일 로드 실패 오류(InvalidLength)를 물리적으로 해결하는 가드 레이어
         if "private_key" in creds_info:
-            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+            pk = str(creds_info["private_key"]).strip()
+            
+            # 앞뒤에 불필요하게 묶여있을 수 있는 따옴표 수동 제거
+            if pk.startswith('"') and pk.endswith('"'):
+                pk = pk[1:-1]
+            if pk.startswith("'") and pk.endswith("'"):
+                pk = pk[1:-1]
+                
+            # \\n 이나 \n 문자로 압축된 이스케이프 스트링을 실제 파이썬 줄바꿈문자로 완벽히 강제 변환
+            pk = pk.replace("\\n", "\n")
+            pk = re.sub(r'\\n', '\n', pk)
+            
+            creds_info["private_key"] = pk
 
+        # 정돈된 크레덴셜 정보로 구글 인증 진행
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
         client = gspread.authorize(creds)
         
@@ -301,7 +315,7 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
 # ─────────────────────────────────────────────
 # 메인 웹 화면 구성
 # ─────────────────────────────────────────────
-st.title("PINK-Check AI2")
+st.title("PINK-Check AI3")
 st.markdown("<h4 style='font-weight: 500; color: #555555; margin-bottom: 15px;'>AI를 활용한 젠더 마케팅 판별 시스템</h4>", unsafe_allow_html=True)
 
 st.markdown("""
