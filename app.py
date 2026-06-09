@@ -28,28 +28,35 @@ def set_korean_font():
 set_korean_font()
 
 # ─────────────────────────────────────────────
-# Google Sheets 연결
+# Google Sheets 연결 (캐싱 제거로 실시간성 확보)
 # ─────────────────────────────────────────────
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive"
 ]
 
-@st.cache_resource(ttl=3600)   # 1시간마다 재연결
 def get_worksheet():
-    creds_dict = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
-    creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-    client = gspread.Client(auth=creds)   # 신식 API로 교체
-    client.session = requests.Session()
-    sheet = client.open_by_key(st.secrets["SHEET_ID"])
-    return sheet.worksheet("history")
-
+    """
+    다른 사람들과 실시간으로 구글 시트 데이터를 공유하기 위해 
+    캐싱(@st.cache_resource)을 제거하고 항상 신선한 시트 인스턴스를 반환합니다.
+    """
+    try:
+        creds_dict = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+        client = gspread.Client(auth=creds)
+        client.session = requests.Session()
+        sheet = client.open_by_key(st.secrets["SHEET_ID"])
+        return sheet.worksheet("history")
+    except Exception as e:
+        st.error(f"구글 시트 연결부 에러 (Secrets 설정을 확인하세요): {e}")
+        return None
 
 def load_history():
     try:
         ws = get_worksheet()
-        rows = ws.get_all_records()
-        return rows
+        if ws:
+            return ws.get_all_records()
+        return []
     except Exception as e:
         st.error(f"기록 불러오기 실패: {e}")
         return []
@@ -57,15 +64,17 @@ def load_history():
 def save_history(time_str, name, score, report):
     try:
         ws = get_worksheet()
-        ws.append_row([time_str, name, score, report])
+        if ws:
+            ws.append_row([time_str, name, score, report])
     except Exception as e:
         st.error(f"기록 저장 실패: {e}")
 
 def clear_history():
     try:
         ws = get_worksheet()
-        ws.clear()
-        ws.append_row(["time", "name", "score", "report"])
+        if ws:
+            ws.clear()
+            ws.append_row(["time", "name", "score", "report"])
     except Exception as e:
         st.error(f"기록 삭제 실패: {e}")
 
@@ -211,7 +220,7 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
             b64_image = base64.b64encode(image_bytes).decode("utf-8")
             parts.append({"inlineData": {"mimeType": mime_type, "data": b64_image}})
 
-        models_to_try = [model_choice, "gemini-2.5-flash" if "gemini-2.5-pro" in model_choice else "gemini-2.5-pro"]
+        models_to_try = [model_choice, "gemini-2.5-flash 빠름" if "pro" in model_choice else "gemini-2.5-pro 정확함"]
         for model in models_to_try:
             clean_model = "gemini-2.5-flash" if "flash" in model else "gemini-2.5-pro"
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
@@ -262,7 +271,6 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
 
 # --- 메인 웹 화면 구성 ---
 st.title("PINK-Check AI")
-
 st.markdown("<h4 style='font-weight: 500; color: #555555; margin-bottom: 15px;'>AI를 활용한 젠더 마케팅 판별 시스템</h4>", unsafe_allow_html=True)
 
 st.markdown("""
@@ -352,17 +360,21 @@ with tab1:
                     st.pyplot(fig_res)
                     st.markdown(ai_text)
 
+                    # 💡 [해결 조치 1] 줄바꿈 전까지의 텍스트 전체를 안전하게 캡처하도록 정규식 대폭 개선
                     log_name = final_product_name
                     if not log_name:
-                        name_match = re.search(r"분석\s*대상\s*제품명\s*:\s*([^\n\s\],]+)", ai_text)
+                        name_match = re.search(r"분석\s*대상\s*제품명\s*:\s*([^\n]+)", ai_text)
                         if name_match:
-                            log_name = name_match.group(1).strip()
+                            # 괄호나 공백, 대괄호 제거 및 깔끔하게 문자열 정돈
+                            cleaned_name = name_match.group(1).strip()
+                            cleaned_name = re.sub(r"[\[\]]", "", cleaned_name)
+                            log_name = cleaned_name if cleaned_name else "사진 분석 상품"
                         else:
-                            log_name = "식별된 사진 분석 상품"
+                            log_name = "사진 분석 상품"
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # ── Google Sheets에 저장 ──
+                    # ── Google Sheets에 실시간 저장 ──
                     save_history(current_time, log_name, score_value, ai_text)
 
                     st.markdown("---")
@@ -401,21 +413,27 @@ with tab2:
         display_list = list(global_history)
 
         if sort_criteria == "시간 순":
-            sort_key = lambda x: x['time']
+            sort_key = lambda x: str(x.get('time', ''))
         elif sort_criteria == "ㄱㄴㄷ 순":
-            sort_key = lambda x: x['name']
+            sort_key = lambda x: str(x.get('name', ''))
         elif sort_criteria == "위험도 순":
-            sort_key = lambda x: int(x['score']) if str(x['score']).isdigit() else 0
+            sort_key = lambda x: int(x['score']) if str(x.get('score', '')).isdigit() else 0
 
         is_reverse = True if sort_order == "내림차순" else False
         display_list.sort(key=sort_key, reverse=is_reverse)
 
         for entry in display_list:
-            with st.expander(f"[{entry['time']}] {entry['name']} — 위험도 지수: {entry['score']}%"):
-                st.write(f"**진단 일시:** {entry['time']}")
-                st.write(f"**제품명:** {entry['name']}")
-                st.write(f"**위험도 지수:** {entry['score']}%")
-                st.markdown(entry['report'])
+            # 안전하게 사전 데이터를 가져오기 위해 .get() 메소드 사용
+            e_time = entry.get('time', '미정')
+            e_name = entry.get('name', '알 수 없는 상품')
+            e_score = entry.get('score', 0)
+            e_report = entry.get('report', '리포트 없음')
+            
+            with st.expander(f"[{e_time}] {e_name} — 위험도 지수: {e_score}%"):
+                st.write(f"**진단 일시:** {e_time}")
+                st.write(f"**제품명:** {e_name}")
+                st.write(f"**위험도 지수:** {e_score}%")
+                st.markdown(e_report)
 
 # --- 3번 탭: 판별 기준 안내 ---
 with tab3:
@@ -441,3 +459,4 @@ with tab3:
     **4. 젠더 타겟팅 거품 교차 검증**
     여성 소비층 제품에 부과되는 숨겨진 핑크택스뿐만 아니라, 남성 소비층 제품에 붙는 숨겨진 블루택스 현상까지 동등한 기준으로 추적합니다.
     """)
+    
