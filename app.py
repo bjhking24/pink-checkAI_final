@@ -1,7 +1,5 @@
 import streamlit as st
 import requests
-import gspread
-from google.oauth2.service_account import Credentials
 import matplotlib.pyplot as plt
 import matplotlib.font_manager as fm
 from matplotlib.figure import Figure
@@ -11,7 +9,6 @@ import base64
 import platform
 import re
 import difflib
-from datetime import datetime
 
 # [배포 환경 통합 한글 폰트 대응]
 def set_korean_font():
@@ -28,80 +25,7 @@ def set_korean_font():
 set_korean_font()
 
 # ─────────────────────────────────────────────
-# Google Sheets 연결 및 가드 레이어
-# ─────────────────────────────────────────────
-SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets",
-    "https://www.googleapis.com/auth/drive"
-]
-
-def get_worksheet():
-    try:
-        if "GOOGLE_SERVICE_ACCOUNT" not in st.secrets:
-            st.error("🚨 Streamlit Secrets에 [GOOGLE_SERVICE_ACCOUNT] 설정이 누락되었습니다.")
-            return None
-            
-        creds_info = {}
-        for key, value in st.secrets["GOOGLE_SERVICE_ACCOUNT"].items():
-            creds_info[key] = value
-
-        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
-        client = gspread.authorize(creds)
-        
-        if "SHEET_ID" not in st.secrets:
-            st.error("🚨 Streamlit Secrets에 SHEET_ID 설정이 누락되었습니다.")
-            return None
-            
-        sheet_id = st.secrets["SHEET_ID"]
-        doc = client.open_by_key(sheet_id)
-        return doc.worksheet("history")
-        
-    except Exception as e:
-        st.error("🚨 구글 시트 연결 중 오류가 발생했습니다.")
-        st.exception(e)
-        return None
-
-def load_history():
-    try:
-        ws = get_worksheet()
-        if ws:
-            lines = ws.get_all_values()
-            if len(lines) <= 1:
-                return []
-            
-            headers = lines[0]
-            records = []
-            for row in lines[1:]:
-                if not row or not row[0].strip():
-                    continue
-                record = {headers[i]: row[i] for i in range(len(headers)) if i < len(row)}
-                records.append(record)
-            return records
-        return []
-    except Exception as e:
-        return []
-
-def save_history(time_str, name, score, report):
-    try:
-        ws = get_worksheet()
-        if ws:
-            # 특수 기호나 포맷 에러 방지를 위해 안전하게 변환 후 추가
-            ws.append_row([str(time_str), str(name), str(score), str(report)])
-            return True
-        return False
-    except Exception as e:
-        st.error(f"🚨 구글 시트 데이터 전송 실패: {e}")
-        return False
-
-def clear_history():
-    try:
-        ws = get_worksheet()
-        if ws:
-            ws.clear()
-            ws.append_row(["time", "name", "score", "report"])
-    except Exception as e:
-        st.error(f"🚨 기록 삭제 실패: {e}")
-
+# 유틸리티 및 분석 기능
 # ─────────────────────────────────────────────
 
 def get_standard_name(input_name):
@@ -305,7 +229,7 @@ st.markdown("""
     <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡 핑크택스(Pink Tax)란?</p>
     <p style="color: #333333; margin: 0; line-height: 1.6; font-size: 14.5px;">
         동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
-        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현사는 '블루택스'입니다.)</small>
+        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'입니다.)</small>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -329,9 +253,10 @@ with st.sidebar:
     else:
         model_choice = st.selectbox("분석 모델", ["google/gemma-2-27b-it"], index=0)
 
-tab1, tab2, tab3 = st.tabs(["제품 판별기", "판독 기록", "판독 기준 안내"])
+# 판독 기록 탭을 없애고 2개로 줄임
+tab1, tab2 = st.tabs(["제품 판별기", "판독 기준 안내"])
 
-# 💡 [핵심 가드] 탭 전환 및 리런 시 결과 증발을 막기 위한 세션 관리 시스템 구축
+# 💡 [핵심 가드] 탭 전환 및 리런 시 결과 증발을 막기 위한 세션 관리 시스템 유지
 if "saved_report_text" not in st.session_state:
     st.session_state.saved_report_text = None
 if "saved_report_score" not in st.session_state:
@@ -391,27 +316,9 @@ with tab1:
                     except Exception:
                         score_value = 10
 
-                    log_name = final_product_name
-                    if not log_name:
-                        name_match = re.search(r"분석\s*대상\s*제품명\s*:\s*([^\n]+)", ai_text)
-                        if name_match:
-                            cleaned_name = name_match.group(1).strip()
-                            cleaned_name = re.sub(r"[\[\]]", "", cleaned_name)
-                            log_name = cleaned_name if cleaned_name else "사진 분석 상품"
-                        else:
-                            log_name = "사진 분석 상품"
-
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-                    # 🚨 [중요 조치] 화면 초기화 전, 버튼 활성화 스코프 안에서 구글 시트 추가 선행 완료
-                    sheet_success = save_history(current_time, log_name, score_value, ai_text)
-
                     # 연산이 완벽히 끝나면 세션 상태에 잠금 보관합니다.
                     st.session_state.saved_report_text = ai_text
                     st.session_state.saved_report_score = score_value
-                    
-                    if sheet_success:
-                        st.toast("✅ 분석 결과가 구글 시트에 안전하게 저장되었습니다!", icon="📊")
 
     # 버튼 밖 컨텍스트 구조: 세션에 박제된 데이터가 있다면 새로고침되어도 무조건 유지하여 화면 렌더링
     if st.session_state.saved_report_text is not None:
@@ -423,62 +330,9 @@ with tab1:
         st.markdown("---")
         st.caption("본 분석 리포트는 알고리즘 기반 예측물이며 법적 효력을 가지지 않습니다.")
 
-# --- 2번 탭: 판독 기록 ---
+
+# --- 2번 탭: 판별 기준 안내 ---
 with tab2:
-    st.header("실시간 판독 기록")
-    st.write("본 서비스에서 청중들이 실시간으로 분석한 빅데이터 내역이 모두 이곳에 누적됩니다.")
-
-    global_history = load_history()
-
-    if not global_history:
-        st.info("아직 분석 내역이 없습니다. 제품을 분석해보세요!")
-        if st.button("🔄 실시간 목록 새로고침"):
-            st.rerun()
-    else:
-        col_refresh, col_sort1, col_sort2, col_del = st.columns([1.5, 1.5, 1.5, 1])
-
-        with col_refresh:
-            st.write("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
-            if st.button("🔄 새로고침"):
-                st.rerun()
-        with col_sort1:
-            sort_criteria = st.selectbox("정렬 기준", ["시간 순", "ㄱㄴㄷ 순", "위험도 순"])
-        with col_sort2:
-            sort_order = st.selectbox("정렬 방향", ["내림차순", "오름차순"])
-        with col_del:
-            st.write("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
-            if st.button("데이터 비우기"):
-                clear_history()
-                st.rerun()
-
-        st.markdown("---")
-
-        display_list = list(global_history)
-
-        if sort_criteria == "시간 순":
-            sort_key = lambda x: str(x.get('time', ''))
-        elif sort_criteria == "ㄱㄴㄷ 순":
-            sort_key = lambda x: str(x.get('name', ''))
-        elif sort_criteria == "위험도 순":
-            sort_key = lambda x: int(x['score']) if str(x.get('score', '')).isdigit() else 0
-
-        is_reverse = True if sort_order == "내림차순" else False
-        display_list.sort(key=sort_key, reverse=is_reverse)
-
-        for entry in display_list:
-            e_time = entry.get('time', '미정')
-            e_name = entry.get('name', '알 수 없는 상품')
-            e_score = entry.get('score', 0)
-            e_report = entry.get('report', '리포트 없음')
-            
-            with st.expander(f"[{e_time}] {e_name} — 위험도 지수: {e_score}%"):
-                st.write(f"**진단 일시:** {e_time}")
-                st.write(f"**제품명:** {e_name}")
-                st.write(f"**위험도 지수:** {e_score}%")
-                st.markdown(e_report)
-
-# --- 3번 탭: 판별 기준 안내 ---
-with tab3:
     st.markdown("## 시스템 판독 기준 및 알고리즘 안내")
     st.write("본 시스템은 '주 소비 고객층의 성별 편중성'을 악용한 숨겨진 마케팅 거품까지 공정하게 진단하기 위해 **4단계 검증 과정**을 거칩니다.")
     st.markdown("---")
