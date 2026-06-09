@@ -28,8 +28,6 @@ def set_korean_font():
 set_korean_font()
 
 # 💡 [글로벌 무료 온라인 DB를 활용한 100% 실시간 전역 공유 로직]
-# 외부 무료 키-값 저장소 API를 활용하여 전 세계 어디서 접속해도 데이터가 누적 공유됩니다.
-# (V.I.A 조 전용 독립 데이터베이스 주소 세팅 완료)
 kv_url = "https://kvstorage.top/api/v1/via_pinkcheck_db_final"
 
 def load_global_history():
@@ -254,7 +252,7 @@ st.markdown("""
     <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡 핑크택스(Pink Tax)란?</p>
     <p style="color: #333333; margin: 0; line-height: 1.6; font-size: 14.5px;">
         동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
-        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'입니다.)</small>
+        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 'mapped 블루택스'입니다.)</small>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -279,7 +277,7 @@ with st.sidebar:
         model_choice = st.selectbox("분석 모델", ["google/gemma-2-27b-it"], index=0)
 
 # 화면 탭 구성
-tab1, tab2, tab3 = st.tabs(["제품 판별기", "판독 기록", "판독 기준 안내"])
+tab1, tab2, tab3 = st.tabs(["제품 판독기", "판독 기록", "판독 기준 안내"])
 
 # --- 1번 탭: 제품 판별기 ---
 with tab1:
@@ -363,7 +361,6 @@ with tab2:
     st.header("실시간 판독 기록")
     st.write("본 서비스에서 실시간으로 분석한 빅데이터 내역이 공유되어 누적됩니다.")
 
-    # 💡 글로벌 DB로부터 모든 사용자의 실시간 누적 데이터 호출
     history_to_display = load_global_history()
 
     if not history_to_display:
