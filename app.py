@@ -28,7 +28,7 @@ def set_korean_font():
 set_korean_font()
 
 # ─────────────────────────────────────────────
-# Google Sheets 연결 (캐싱 제거로 실시간성 확보)
+# Google Sheets 연결 (버그 전면 수정 및 안전성 확보)
 # ─────────────────────────────────────────────
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -37,25 +37,40 @@ SCOPES = [
 
 def get_worksheet():
     """
-    다른 사람들과 실시간으로 구글 시트 데이터를 공유하기 위해 
-    캐싱(@st.cache_resource)을 제거하고 항상 신선한 시트 인스턴스를 반환합니다.
+    Secrets 연동 에러를 완벽히 차단하고, 
+    실패 시 화면에 상세 에러(st.exception)를 강제로 노출합니다.
     """
     try:
-        creds_dict = dict(st.secrets["GOOGLE_SERVICE_ACCOUNT"])
-        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
-        client = gspread.Client(auth=creds)
-        client.session = requests.Session()
-        sheet = client.open_by_key(st.secrets["SHEET_ID"])
-        return sheet.worksheet("history")
+        # [핵심 수정] st.secrets 객체를 안전하게 일반 파이썬 dict로 변환하는 정석 기법 적용
+        if "GOOGLE_SERVICE_ACCOUNT" not in st.secrets:
+            st.error("🚨 Streamlit Secrets에 [GOOGLE_SERVICE_ACCOUNT] 설정이 누락되었습니다.")
+            return None
+            
+        creds_info = {}
+        for key, value in st.secrets["GOOGLE_SERVICE_ACCOUNT"].items():
+            creds_info[key] = value
+
+        # Google 인증 객체 생성
+        creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
+        
+        # [핵심 수정] gspread의 가장 안정적인 인증 컨텍스트인 gspread.authorize 사용
+        client = gspread.authorize(creds)
+        
+        if "SHEET_ID" not in st.secrets:
+            st.error("🚨 Streamlit Secrets에 SHEET_ID 설정이 누락되었습니다.")
+            return None
+            
+        sheet_id = st.secrets["SHEET_ID"]
+        doc = client.open_by_key(sheet_id)
+        return doc.worksheet("history")
+        
     except Exception as e:
-        st.error(f"구글 시트 연결부 에러 (Secrets 설정을 확인하세요): {e}")
+        # 화면에 아무것도 안 뜨던 문제를 해결하기 위해 강제 예외 트레이스백을 출력합니다.
+        st.error("🚨 구글 시트 연결부에서 치명적 에러가 발생했습니다! 아래 에러 문구를 확인하세요.")
+        st.exception(e)
         return None
 
 def load_history():
-    """
-    get_all_records 대신 get_all_values를 사용하여 
-    첫 줄 헤더 매핑 오류 및 데이터 공백으로 인한 에러를 원천 차단합니다.
-    """
     try:
         ws = get_worksheet()
         if ws:
@@ -66,29 +81,23 @@ def load_history():
             headers = lines[0]  # ['time', 'name', 'score', 'report']
             records = []
             for row in lines[1:]:
-                # 행이 비어있거나 첫 번째 칸(시간)이 비어있다면 건너뜀
                 if not row or not row[0].strip():
                     continue
-                # 딕셔너리 형태로 변환하여 기존 UI 코드와의 호환성 유지
                 record = {headers[i]: row[i] for i in range(len(headers)) if i < len(row)}
                 records.append(record)
             return records
         return []
     except Exception as e:
-        st.error(f"기록 불러오기 실패: {e}")
+        st.error(f"🚨 기록 불러오기 실패: {e}")
         return []
 
 def save_history(time_str, name, score, report):
-    """
-    구글 API가 정수나 특수문자 배열을 거부하는 현상을 방지하기 위해
-    모든 인자를 확실하게 문자열(str)로 변환한 후 안전하게 밀어 넣습니다.
-    """
     try:
         ws = get_worksheet()
         if ws:
             ws.append_row([str(time_str), str(name), str(score), str(report)])
     except Exception as e:
-        st.error(f"기록 저장 실패: {e}")
+        st.error(f"🚨 기록 저장 실패: {e}")
 
 def clear_history():
     try:
@@ -97,7 +106,7 @@ def clear_history():
             ws.clear()
             ws.append_row(["time", "name", "score", "report"])
     except Exception as e:
-        st.error(f"기록 삭제 실패: {e}")
+        st.error(f"🚨 기록 삭제 실패: {e}")
 
 # ─────────────────────────────────────────────
 
@@ -358,9 +367,9 @@ with tab1:
 
                 result = call_pinktax_api(final_product_name, product_details, image_bytes, mime_type, ai_provider, model_choice, api_key)
 
-                if "error" in result:
+                if result and "error" in result:
                     st.error(result["error"])
-                else:
+                elif result:
                     st.success("분석이 완료되었습니다.")
                     ai_text = result["text"]
 
@@ -381,7 +390,6 @@ with tab1:
                     st.pyplot(fig_res)
                     st.markdown(ai_text)
 
-                    # 줄바꿈 전까지의 텍스트 전체를 안전하게 캡처하도록 정규식 적용
                     log_name = final_product_name
                     if not log_name:
                         name_match = re.search(r"분석\s*대상\s*제품명\s*:\s*([^\n]+)", ai_text)
@@ -394,7 +402,7 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # ── Google Sheets에 실시간 저장 (타입 에러 완전 방지) ──
+                    # 구글 시트에 데이터 밀어넣기 실행
                     save_history(current_time, log_name, score_value, ai_text)
 
                     st.markdown("---")
