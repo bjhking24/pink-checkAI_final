@@ -27,22 +27,27 @@ def set_korean_font():
 
 set_korean_font()
 
-# 💡 [진짜 에러 없는 파일 기반 전역 공용 DB 로직]
-DB_FILE = "pinktax_global_history.json"
+# 💡 [글로벌 무료 온라인 DB를 활용한 100% 실시간 전역 공유 로직]
+# 외부 무료 키-값 저장소 API를 활용하여 전 세계 어디서 접속해도 데이터가 누적 공유됩니다.
+# (V.I.A 조 전용 독립 데이터베이스 주소 세팅 완료)
+kv_url = "https://kvstorage.top/api/v1/via_pinkcheck_db_final"
 
 def load_global_history():
-    if os.path.exists(DB_FILE):
-        try:
-            with open(DB_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            return []
+    try:
+        response = requests.get(kv_url, timeout=4)
+        if response.status_code == 200 and response.text:
+            data = response.json()
+            if isinstance(data, str):
+                return json.loads(data)
+            return data if isinstance(data, list) else []
+    except Exception:
+        pass
     return []
 
 def save_global_history(history_data):
     try:
-        with open(DB_FILE, "w", encoding="utf-8") as f:
-            json.dump(history_data, f, ensure_ascii=False, indent=4)
+        headers = {"Content-Type": "application/json"}
+        requests.post(kv_url, data=json.dumps(history_data), headers=headers, timeout=4)
     except Exception:
         pass
 
@@ -91,7 +96,7 @@ def draw_gauge_chart(score=None):
     ax.text(-0.85, 0.85, "Suspect\n(21~40%)", color='#f1c40f', fontsize=10, ha='center', va='bottom', weight='bold')
     ax.text(0, 1.25, "Caution\n(41~60%)", color='#e67e22', fontsize=10, ha='center', va='bottom', weight='bold')
     ax.text(0.85, 0.85, "Warning\n(61~80%)", color='#e74c3c', fontsize=10, ha='center', va='bottom', weight='bold')
-    ax.text(1.15, -0.1, "Warning\n(81~100%)", color='#900c3f', fontsize=10, ha='center', va='top', weight='bold')
+    ax.text(1.15, -0.1, "Severe\n(81~100%)", color='#900c3f', fontsize=10, ha='center', va='top', weight='bold')
 
     if score is not None:
         angle_rad = np.pi * (1 - score / 100.0)
@@ -190,9 +195,10 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
             b64_image = base64.b64encode(image_bytes).decode("utf-8")
             parts.append({"inlineData": {"mimeType": mime_type, "data": b64_image}})
 
-        models_to_try = [model_choice, "gemini-2.5-flash" if model_choice == "gemini-2.5-pro" else "gemini-2.5-pro"]
+        models_to_try = [model_choice, "gemini-2.5-flash" if "gemini-2.5-pro" in model_choice else "gemini-2.5-pro"]
         for model in models_to_try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+            clean_model = "gemini-2.5-flash" if "flash" in model else "gemini-2.5-pro"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{clean_model}:generateContent"
             headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
             payload = {
                 "contents": [{"parts": parts}],
@@ -245,7 +251,7 @@ st.markdown("<h4 style='font-weight: 500; color: #555555; margin-bottom: 15px;'>
 
 st.markdown("""
 <div style="background-color: #FFF5F7; border: 1px solid #FF1493; border-left: 6px solid #FF1493; padding: 16px; border-radius: 6px; margin-top: 10px; margin-bottom: 20px;">
-    <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡핑크택스(Pink Tax)란?</p>
+    <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡 핑크택스(Pink Tax)란?</p>
     <p style="color: #333333; margin: 0; line-height: 1.6; font-size: 14.5px;">
         동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
         <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'입니다.)</small>
@@ -273,7 +279,7 @@ with st.sidebar:
         model_choice = st.selectbox("분석 모델", ["google/gemma-2-27b-it"], index=0)
 
 # 화면 탭 구성
-tab1, tab2, tab3 = st.tabs(["제품 판독기", "판독 기록", "판독 기준 안내"])
+tab1, tab2, tab3 = st.tabs(["제품 판별기", "판독 기록", "판독 기준 안내"])
 
 # --- 1번 탭: 제품 판별기 ---
 with tab1:
@@ -323,7 +329,6 @@ with tab1:
                         else:
                             score_match_alt = re.search(r"(\d+)\s*%", ai_text)
                             if score_match_alt:
-                                # 정확한 매칭을 유도하기 위해 점수 파싱 최적화
                                 score_value = int(score_match_alt.group(1))
                     except Exception:
                         score_value = 10
@@ -343,7 +348,7 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # 💡 파일 기반 전역 공유 로직으로 전면 동기화 (에러 원천 방지)
+                    # 💡 글로벌 무료 클라우드 DB에 영구 누적 저장 및 전역 공유
                     current_history = load_global_history()
                     current_history.append({
                         "time": current_time, "name": log_name, "score": score_value, "report": ai_text
@@ -356,9 +361,9 @@ with tab1:
 # --- 2번 탭: 판독 기록 히스토리 (전체 사용자 공유 버전) ---
 with tab2:
     st.header("실시간 판독 기록")
-    st.write("본 서비스에서 실시간으로 분석한 빅데이터 내역이 누적됩니다.")
+    st.write("본 서비스에서 실시간으로 분석한 빅데이터 내역이 공유되어 누적됩니다.")
 
-    # 💡 파일로부터 누적 데이터 호출
+    # 💡 글로벌 DB로부터 모든 사용자의 실시간 누적 데이터 호출
     history_to_display = load_global_history()
 
     if not history_to_display:
