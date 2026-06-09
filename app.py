@@ -10,7 +10,6 @@ import base64
 import platform
 import re
 import difflib
-import sqlite3
 from datetime import datetime
 
 # [배포 환경 통합 한글 폰트 대응]
@@ -27,39 +26,14 @@ def set_korean_font():
 
 set_korean_font()
 
-# 💡 [진짜 해결책: SQLite3와 전역 캐시를 이용한 실시간 공용 DB 구축]
-# @st.cache_resource를 사용하면 전 세계 모든 접속자가 이 하나의 DB 연결을 공유합니다.
+# 💡 [진짜 해결책: 서버 RAM 인메모리 전역 공유]
+# @st.cache_resource는 서버가 켜져 있는 동안 전 세계 모든 접속자에게 이 단일 리스트(메모리)를 공유합니다.
 @st.cache_resource
-def init_db():
-    # 서버 내부에 pinktax_global.db 라는 파일 생성 및 다중 접속 허용
-    conn = sqlite3.connect('pinktax_global.db', check_same_thread=False)
-    c = conn.cursor()
-    # 테이블 생성
-    c.execute('''CREATE TABLE IF NOT EXISTS history
-                 (time TEXT, name TEXT, score INTEGER, report TEXT)''')
-    conn.commit()
-    return conn
+def get_shared_memory():
+    return []
 
-conn = init_db()
-
-def insert_history(time_str, name, score, report):
-    c = conn.cursor()
-    c.execute("INSERT INTO history (time, name, score, report) VALUES (?, ?, ?, ?)",
-              (time_str, name, score, report))
-    conn.commit()
-
-def load_history():
-    c = conn.cursor()
-    c.execute("SELECT time, name, score, report FROM history")
-    rows = c.fetchall()
-    # 최신 데이터가 위로 오도록 역순(reverse) 정렬하여 반환
-    history_list = [{"time": r[0], "name": r[1], "score": r[2], "report": r[3]} for r in rows]
-    return history_list
-
-def clear_history():
-    c = conn.cursor()
-    c.execute("DELETE FROM history")
-    conn.commit()
+# 모든 사용자가 동일한 RAM 주소의 리스트를 바라보게 됩니다.
+global_history = get_shared_memory()
 
 # [오타 자동 교정 및 제품명 표준화 함수]
 def get_standard_name(input_name):
@@ -358,8 +332,10 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # 💡 판독 완료 즉시 SQLite 데이터베이스에 기록 삽입 (실시간 전역 공유)
-                    insert_history(current_time, log_name, score_value, ai_text)
+                    # 💡 RAM 메모리 전용 박스에 데이터 즉시 추가 (모든 접속자가 즉시 공유받음)
+                    global_history.append({
+                        "time": current_time, "name": log_name, "score": score_value, "report": ai_text
+                    })
 
                     st.markdown("---")
                     st.caption("본 분석 리포트는 알고리즘 기반 예측물이며 법적 효력을 가지지 않습니다.")
@@ -369,25 +345,32 @@ with tab2:
     st.header("실시간 판독 기록")
     st.write("본 서비스에서 청중들이 실시간으로 분석한 빅데이터 내역이 모두 이곳에 누적됩니다.")
 
-    # 💡 SQLite DB에서 모든 접속자의 기록을 실시간으로 가져오기
-    history_to_display = load_history()
-
-    if not history_to_display:
+    if not global_history:
         st.info("아직 분석 내역이 없습니다. 제품을 분석해보세요!")
+        if st.button("🔄 실시간 목록 새로고침"):
+            st.rerun()
     else:
-        col_sort1, col_sort2, col_del = st.columns([2, 2, 1])
+        col_refresh, col_sort1, col_sort2, col_del = st.columns([1.5, 1.5, 1.5, 1])
 
+        with col_refresh:
+            st.write("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
+            # 발표자가 교단에서 누를 수 있는 새로고침 버튼 (청중이 올린 걸 확인하는 용도)
+            if st.button("🔄 새로고침"):
+                st.rerun()
         with col_sort1:
             sort_criteria = st.selectbox("정렬 기준", ["시간 순", "ㄱㄴㄷ 순", "위험도 순"])
         with col_sort2:
             sort_order = st.selectbox("정렬 방향", ["내림차순", "오름차순"])
         with col_del:
             st.write("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
-            if st.button("전체 데이터 비우기"):
-                clear_history()
+            if st.button("데이터 비우기"):
+                global_history.clear()
                 st.rerun()
 
         st.markdown("---")
+
+        # 메모리 데이터를 화면에 띄우기 위해 복사본 생성 후 정렬
+        display_list = list(global_history)
 
         if sort_criteria == "시간 순":
             sort_key = lambda x: x['time']
@@ -397,9 +380,9 @@ with tab2:
             sort_key = lambda x: x['score']
 
         is_reverse = True if sort_order == "내림차순" else False
-        history_to_display.sort(key=sort_key, reverse=is_reverse)
+        display_list.sort(key=sort_key, reverse=is_reverse)
 
-        for entry in history_to_display:
+        for entry in display_list:
             with st.expander(f"[{entry['time']}] {entry['name']} — 위험도 지수: {entry['score']}%"):
                 st.write(f"**진단 일시:** {entry['time']}")
                 st.write(f"**제품명:** {entry['name']}")
