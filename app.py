@@ -45,6 +45,10 @@ def get_worksheet():
         for key, value in st.secrets["GOOGLE_SERVICE_ACCOUNT"].items():
             creds_info[key] = value
 
+        # 🔥 [핵심 조치] private_key 내부의 줄바꿈 이스케이프 문자를 실제 줄바꿈문자로 변환하여 PEM 에러 해결
+        if "private_key" in creds_info:
+            creds_info["private_key"] = creds_info["private_key"].replace("\\n", "\n")
+
         creds = Credentials.from_service_account_info(creds_info, scopes=SCOPES)
         client = gspread.authorize(creds)
         
@@ -297,7 +301,7 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
 # ─────────────────────────────────────────────
 # 메인 웹 화면 구성
 # ─────────────────────────────────────────────
-st.title("PINK-Check AI")
+st.title("PINK-Check AI2")
 st.markdown("<h4 style='font-weight: 500; color: #555555; margin-bottom: 15px;'>AI를 활용한 젠더 마케팅 판별 시스템</h4>", unsafe_allow_html=True)
 
 st.markdown("""
@@ -466,16 +470,16 @@ with tab2:
         display_list.sort(key=sort_key, reverse=is_reverse)
 
         for entry in display_list:
-            e_time = entry.get('time', '미정')
-            e_name = entry.get('name', '알 수 없는 상품')
-            e_score = entry.get('score', 0)
-            e_report = entry.get('report', '리포트 없음')
+            entry_time = entry.get('time', '미정')
+            entry_name = entry.get('name', '알 수 없는 상품')
+            entry_score = entry.get('score', 0)
+            entry_report = entry.get('report', '리포트 없음')
             
-            with st.expander(f"[{e_time}] {e_name} — 위험도 지수: {e_score}%"):
-                st.write(f"**진단 일시:** {e_time}")
-                st.write(f"**제품명:** {e_name}")
-                st.write(f"**위험도 지수:** {e_score}%")
-                st.markdown(e_report)
+            with st.expander(f"[{entry_time}] {entry_name} — 위험도 지수: {entry_score}%"):
+                st.write(f"**진단 일시:** {entry_time}")
+                st.write(f"**제품명:** {entry_name}")
+                st.write(f"**위험도 지수:** {entry_score}%")
+                st.markdown(entry_report)
 
 # --- 3번 탭: 판별 기준 안내 ---
 with tab3:
