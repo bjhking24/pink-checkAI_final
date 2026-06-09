@@ -28,7 +28,7 @@ def set_korean_font():
 set_korean_font()
 
 # ─────────────────────────────────────────────
-# Google Sheets 연결 (단계별 디버깅 메시지 추가)
+# Google Sheets 연결 및 가드 레이어
 # ─────────────────────────────────────────────
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -57,7 +57,7 @@ def get_worksheet():
         return doc.worksheet("history")
         
     except Exception as e:
-        st.error("🚨 구글 시트 연결부 치명적 에러!")
+        st.error("🚨 구글 시트 연결 중 오류가 발생했습니다.")
         st.exception(e)
         return None
 
@@ -79,21 +79,19 @@ def load_history():
             return records
         return []
     except Exception as e:
-        st.error(f"🚨 기록 불러오기 실패: {e}")
         return []
 
 def save_history(time_str, name, score, report):
     try:
-        st.write("📢 [디버그] 구글 시트에 행 추가 시도 중...")
         ws = get_worksheet()
         if ws:
+            # 특수 기호나 포맷 에러 방지를 위해 안전하게 변환 후 추가
             ws.append_row([str(time_str), str(name), str(score), str(report)])
-            st.write("📢 [디버그] 구글 시트 저장 성공 완료!")
-        else:
-            st.write("📢 [디버그] 구글 시트 워크시트를 가져오지 못했습니다.")
+            return True
+        return False
     except Exception as e:
-        st.error(f"🚨 기록 저장 실패: {e}")
-        st.exception(e)
+        st.error(f"🚨 구글 시트 데이터 전송 실패: {e}")
+        return False
 
 def clear_history():
     try:
@@ -258,13 +256,10 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
             }
             for attempt in range(3):
                 try:
-                    st.write(f"📢 [디버그] Gemini API 서버에 데이터 전송 시작... (시도 {attempt+1}/3)")
-                    response = requests.post(url, headers=headers, json=payload, timeout=20) # 타임아웃 20초 설정
-                    st.write(f"📢 [디버그] Gemini API 응답 코드 수신 완료: {response.status_code}")
+                    response = requests.post(url, headers=headers, json=payload, timeout=25)
                     response_json = response.json()
                     
                     if "error" in response_json:
-                        st.error(f"🚨 API 내부 반환 에러: {response_json['error']}")
                         err_msg = response_json["error"].get("message", "")
                         err_code = response_json["error"].get("code", 0)
                         if err_code == 503 or "high demand" in err_msg.lower() or "overloaded" in err_msg.lower():
@@ -274,8 +269,6 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
                     if "candidates" in response_json:
                         return {"text": response_json['candidates'][0]['content']['parts'][0]['text']}
                 except Exception as e:
-                    st.error(f"🚨 API 요청 단계 중 예외 발생: {e}")
-                    st.exception(e)
                     time.sleep(1)
                     continue
         return {"error": "트래픽 폭증으로 응답이 지연되고 있습니다. 잠시 후 다시 시도해 주세요."}
@@ -292,20 +285,18 @@ def call_pinktax_api(product_name, product_details, image_bytes, mime_type, ai_p
             "temperature": 0.0
         }
         try:
-            st.write("📢 [디버그] OpenRouter API 서버에 전송 중...")
-            response = requests.post(url, headers=headers, json=payload, timeout=20)
-            st.write(f"📢 [디버그] OpenRouter 응답 코드: {response.status_code}")
+            response = requests.post(url, headers=headers, json=payload, timeout=25)
             response_json = response.json()
             if "choices" in response_json:
                 return {"text": response_json['choices'][0]['message']['content']}
             elif "error" in response_json:
                 return {"error": response_json["error"].get("message", "통신 중 에러가 발생했습니다.")}
         except Exception as e:
-            st.error(f"🚨 OpenRouter 예외 발생: {e}")
-            st.exception(e)
             return {"error": f"통신 실패: {e}"}
 
-# --- 메인 웹 화면 구성 ---
+# ─────────────────────────────────────────────
+# 메인 웹 화면 구성
+# ─────────────────────────────────────────────
 st.title("PINK-Check AI")
 st.markdown("<h4 style='font-weight: 500; color: #555555; margin-bottom: 15px;'>AI를 활용한 젠더 마케팅 판별 시스템</h4>", unsafe_allow_html=True)
 
@@ -314,7 +305,7 @@ st.markdown("""
     <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡 핑크택스(Pink Tax)란?</p>
     <p style="color: #333333; margin: 0; line-height: 1.6; font-size: 14.5px;">
         동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
-        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'입니다.)</small>
+        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현사는 '블루택스'입니다.)</small>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -340,6 +331,12 @@ with st.sidebar:
 
 tab1, tab2, tab3 = st.tabs(["제품 판별기", "판독 기록", "판독 기준 안내"])
 
+# 💡 [핵심 가드] 탭 전환 및 리런 시 결과 증발을 막기 위한 세션 관리 시스템 구축
+if "saved_report_text" not in st.session_state:
+    st.session_state.saved_report_text = None
+if "saved_report_score" not in st.session_state:
+    st.session_state.saved_report_score = None
+
 # --- 1번 탭: 제품 판별기 ---
 with tab1:
     if ai_provider == "Google Gemini":
@@ -352,7 +349,6 @@ with tab1:
     product_details = st.text_area("가격, 용량(중량), 주 소비층에 대한 정보나 의견을 적어주세요 (선택사항)", placeholder="")
 
     if st.button("분석 시작"):
-        st.write("📢 [디버그] 분석 시작 버튼 클릭됨.")
         final_product_name = get_standard_name(product_name_input)
 
         if not final_product_name and not uploaded_file:
@@ -360,6 +356,10 @@ with tab1:
         elif ai_provider == "OpenRouter (Gemma 2)" and not final_product_name:
             st.warning("제품명을 입력해 주세요.")
         else:
+            # 새로운 분석이 시작되면 기존 세션 기록을 즉시 클리어합니다.
+            st.session_state.saved_report_text = None
+            st.session_state.saved_report_score = None
+
             with st.spinner("AI가 소비자 통계와 제품 검색 결과를 바탕으로 통합 분석하고 있습니다..."):
                 image_bytes = None
                 mime_type = None
@@ -372,18 +372,14 @@ with tab1:
                 else:
                     api_key = st.secrets.get("OPENROUTER_API_KEY", "")
 
-                st.write("📢 [디버그] API 호출 직전 단계 진입...")
                 result = call_pinktax_api(final_product_name, product_details, image_bytes, mime_type, ai_provider, model_choice, api_key)
-                st.write("📢 [디버그] API 호출 결과 리턴받음.")
 
                 if result and "error" in result:
                     st.error(result["error"])
                 elif result:
-                    st.success("분석이 완료되었습니다.")
                     ai_text = result["text"]
 
                     score_value = 10
-
                     try:
                         score_match = re.search(r"위험도\s*지수\s*:\s*(\d+)\s*%", ai_text)
                         if score_match:
@@ -394,10 +390,6 @@ with tab1:
                                 score_value = int(score_match_alt.group(1))
                     except Exception:
                         score_value = 10
-
-                    fig_res = draw_gauge_chart(score_value)
-                    st.pyplot(fig_res)
-                    st.markdown(ai_text)
 
                     log_name = final_product_name
                     if not log_name:
@@ -411,11 +403,25 @@ with tab1:
 
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                    # 구글 시트에 데이터 밀어넣기 실행
-                    save_history(current_time, log_name, score_value, ai_text)
+                    # 🚨 [중요 조치] 화면 초기화 전, 버튼 활성화 스코프 안에서 구글 시트 추가 선행 완료
+                    sheet_success = save_history(current_time, log_name, score_value, ai_text)
 
-                    st.markdown("---")
-                    st.caption("본 분석 리포트는 알고리즘 기반 예측물이며 법적 효력을 가지지 않습니다.")
+                    # 연산이 완벽히 끝나면 세션 상태에 잠금 보관합니다.
+                    st.session_state.saved_report_text = ai_text
+                    st.session_state.saved_report_score = score_value
+                    
+                    if sheet_success:
+                        st.toast("✅ 분석 결과가 구글 시트에 안전하게 저장되었습니다!", icon="📊")
+
+    # 버튼 밖 컨텍스트 구조: 세션에 박제된 데이터가 있다면 새로고침되어도 무조건 유지하여 화면 렌더링
+    if st.session_state.saved_report_text is not None:
+        st.success("분석이 완료되었습니다.")
+        fig_res = draw_gauge_chart(st.session_state.saved_report_score)
+        st.pyplot(fig_res)
+        st.markdown(st.session_state.saved_report_text)
+
+        st.markdown("---")
+        st.caption("본 분석 리포트는 알고리즘 기반 예측물이며 법적 효력을 가지지 않습니다.")
 
 # --- 2번 탭: 판독 기록 ---
 with tab2:
