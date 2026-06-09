@@ -245,10 +245,10 @@ st.markdown("<h4 style='font-weight: 500; color: #555555; margin-bottom: 15px;'>
 
 st.markdown("""
 <div style="background-color: #FFF5F7; border: 1px solid #FF1493; border-left: 6px solid #FF1493; padding: 16px; border-radius: 6px; margin-top: 10px; margin-bottom: 20px;">
-    <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡 핑크택스(Pink Tax)란?</p>
+    <p style="color: #FF1493; margin: 0 0 6px 0; font-weight: bold; font-size: 17px;">💡핑크택스(Pink Tax)란?</p>
     <p style="color: #333333; margin: 0; line-height: 1.6; font-size: 14.5px;">
-        동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅 라벨이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
-        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'라고 합니다.)</small>
+        동일한 성분, 기능, 용량의 제품·서비스임에도 단순히 <b>'여성용'</b> 마케팅이나 디자인이 적용되었다는 이유로 가격이 더 비싸지는 <b>성별 기반 가격 차별 현상</b>을 뜻합니다.<br>
+        <small style="color: #777777; font-style: italic;">(이와 반대로 남성향 마케팅으로 가격 거품을 형성하는 현상은 '블루택스'입니다.)</small>
     </p>
 </div>
 """, unsafe_allow_html=True)
@@ -263,17 +263,17 @@ with st.sidebar:
     st.markdown("---")
 
     ai_provider = st.selectbox(
-        "메인 AI 엔진 선택 (실시간 구글링은 Google Gemini 권장)",
+        "메인 AI 엔진 선택 (Gemini 권장)",
         ["Google Gemini", "OpenRouter (Gemma 2)"]
     )
 
     if ai_provider == "Google Gemini":
-        model_choice = st.selectbox("분석 모델", ["gemini-2.5-flash", "gemini-2.5-pro"], index=1)
+        model_choice = st.selectbox("분석 모델", ["gemini-2.5-flash 빠름", "gemini-2.5-pro 정확함"], index=1)
     else:
         model_choice = st.selectbox("분석 모델", ["google/gemma-2-27b-it"], index=0)
 
 # 화면 탭 구성
-tab1, tab2, tab3 = st.tabs(["제품 판별기", "판독 기록", "판별 기준 안내"])
+tab1, tab2, tab3 = st.tabs(["제품 판독기", "판독 기록", "판독 기준 안내"])
 
 # --- 1번 탭: 제품 판별기 ---
 with tab1:
@@ -284,7 +284,7 @@ with tab1:
         product_name_input = st.text_input("제품명을 입력하세요", placeholder="")
         uploaded_file = None
 
-    product_details = st.text_area("가격, 용량(중량), 주 소비 고객층에 대해 아시는 정보나 의견을 적어주세요 (선택사항)", placeholder="")
+    product_details = st.text_area("가격, 용량(중량), 주 소비층에 대한 정보나 의견을 적어주세요 (선택사항)", placeholder="")
 
     if st.button("분석 시작"):
         final_product_name = get_standard_name(product_name_input)
@@ -294,7 +294,7 @@ with tab1:
         elif ai_provider == "OpenRouter (Gemma 2)" and not final_product_name:
             st.warning("제품명을 입력해 주세요.")
         else:
-            with st.spinner("AI가 주 소비층 통계와 구글 검색 결과를 바탕으로 통합 분석하고 있습니다..."):
+            with st.spinner("AI가 소비자 통계와 제품 검색 결과를 바탕으로 통합 분석하고 있습니다..."):
                 image_bytes = None
                 mime_type = None
                 if uploaded_file is not None:
@@ -355,14 +355,14 @@ with tab1:
 
 # --- 2번 탭: 판독 기록 히스토리 (전체 사용자 공유 버전) ---
 with tab2:
-    st.header("실시간 판독 기록 히스토리")
-    st.write("본 서비스 전체 사용자가 실시간으로 분석한 빅데이터 내역이 공유되어 누적됩니다.")
+    st.header("실시간 판독 기록")
+    st.write("본 서비스에서 실시간으로 분석한 빅데이터 내역이 누적됩니다.")
 
     # 💡 파일로부터 누적 데이터 호출
     history_to_display = load_global_history()
 
     if not history_to_display:
-        st.info("아직 데이터베이스에 누적된 분석 내역이 없습니다.")
+        st.info("아직 분석 내역이 없습니다.")
     else:
         col_sort1, col_sort2, col_del = st.columns([2, 2, 1])
 
@@ -372,7 +372,7 @@ with tab2:
             sort_order = st.selectbox("정렬 방향", ["내림차순", "오름차순"])
         with col_del:
             st.write("<div style='padding-top: 24px;'></div>", unsafe_allow_html=True)
-            if st.button("공용 데이터 비우기"):
+            if st.button("데이터 비우기"):
                 save_global_history([])
                 st.rerun()
 
